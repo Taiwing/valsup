@@ -1,0 +1,64 @@
+#!/bin/zsh
+
+function usage {
+	printf "usage: valsup command\n\n"
+	printf "The command will be passed through valgrind and every leak\n"
+	printf "it generates will be added to the ~/.valgsupp/main.supp file.\n"
+	printf "This also checks that every .supp file in .valgsupp/ is listed\n"
+	printf "in ~/.valgrindrc. If one of the mentioned file or directory is\n"
+	printf "missing, it creates it.\n"
+}
+
+if [ -z "$1" ]; then
+	usage
+	exit 1
+fi
+
+COMMAND=""
+VALRC="$HOME/.valgrindrc"
+SUPP_DIR="$HOME/.valgsupp"
+SUPP_FILE="$SUPP_DIR/main.supp"
+SCRIPT_DIR="$HOME/Scripts/valsup"
+RAWOUT_FILE="$SCRIPT_DIR/raw.log"
+
+FIRST=1
+while [ "$1" != "" ]; do
+	if [ $FIRST != 0 ]; then
+		COMMAND+="$1"
+		FIRST=0
+	else
+		COMMAND+=" $1"
+	fi
+	shift
+done
+
+VALCMD="valgrind --tool=memcheck --leak-check=full --show-reachable=yes \
+--error-limit=no --gen-suppressions=all --log-file=$RAWOUT_FILE $COMMAND"
+
+eval $VALCMD
+
+if [ ! -f "$RAWOUT_FILE" ]; then
+	printf "valsup: failed to execute valgrind with \"$COMMAND\" command.\n"
+	exit 1
+fi
+
+if [ ! -d "$SUPP_DIR" ]; then
+	mkdir $SUPP_DIR
+fi
+
+if [ ! -f "$SUPP_FILE" ]; then
+	touch $SUPP_FILE
+fi
+
+if [ ! -f "$VALRC" ]; then
+	touch $VALRC
+fi
+
+grep "\"--suppressions=$SUPP_FILE\"" $VALRC
+if [ $? != 0 ]; then
+	echo "--suppressions=$SUPP_FILE" >> $VALRC
+fi
+
+cat $RAWOUT_FILE | $SCRIPT_DIR/grindmerge >> $SUPP_FILE
+
+rm $RAWOUT_FILE 
